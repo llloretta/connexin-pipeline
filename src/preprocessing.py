@@ -1,5 +1,8 @@
 # functions for PSF centering and deconvolution application
 import numpy as np
+from skimage.restoration import rolling_ball
+from joblib import Parallel, delayed
+import numpy as np
 
 def brightest_slice(psf: np.array) -> int:
     """
@@ -105,3 +108,27 @@ def add_zero_padding(psf: np.array, target_z: tuple) -> np.array:
     return psf_padded
 
 
+
+def remove_background_rolling_ball_3d(stack, radius=30, n_jobs=-1):
+    """
+    Apply rolling-ball background subtraction to every z-plane independently,
+    in parallel across CPU cores.
+
+    Parameters
+    ----------
+    stack   : 3D array (z, y, x)
+    radius  : rolling ball radius, in pixels
+    n_jobs  : number of parallel workers (-1 = use all available cores)
+
+    Returns
+    -------
+    corrected : 3D array, same shape as stack, background-subtracted
+    """
+    def process_plane(plane):
+        background = rolling_ball(plane, radius=radius)
+        return plane - background
+
+    results = Parallel(n_jobs=n_jobs)(
+        delayed(process_plane)(stack[z]) for z in range(stack.shape[0])
+    )
+    return np.stack(results, axis=0)

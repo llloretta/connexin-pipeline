@@ -39,7 +39,7 @@ def count_connexin_plaques(binary):
     labeled_array = measure.label(binary)  # label the connected components in the binary mask
     num_regions = labeled_array.max()  # or len(np.unique(labeled_array)) - 
     
-    print(f"Number of connected components (plaques) detected: {num_regions}")
+    # print(f"Number of connected components (plaques) detected: {num_regions}")
 
     return num_regions, labeled_array
 

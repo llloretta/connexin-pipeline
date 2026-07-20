@@ -1,26 +1,8 @@
-# large data — don't version control raw/intermediate images
-data/raw/
-data/preprocessed/
-data/manual_annotations
-data/segmented/
-data/labeled/
-data/nuclei/
-results/
-*.tiff
 *.tif
-*.npy
-*.png
-*.csv
-*.mp4
-
-# jupyter checkpoints
-.ipynb_checkpoints/
-
-# python
+*.tiff
+*.h5
 __pycache__/
 *.pyc
-.venv/
-venv/
-
-# OS
-.DS_Store
+.ipynb_checkpoints/
+data/
+results/

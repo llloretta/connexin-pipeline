@@ -44,7 +44,39 @@ def count_connexin_plaques(binary):
     return num_regions, labeled_array
 
 
+def remove_regions_above_area(binary, max_area_um2=2.5, pixel_size_um=0.325):
+    """Remove segmented regions whose 2D cross-section area exceeds ``max_area_um2`` (µm²).
 
+    Filters per plane, so it accepts either a single 2D plane or a 3D (z, y, x) stack.
+    Direction is remove-large (drop blobs bigger than the threshold, keep small plaques);
+    use skimage.morphology.remove_small_objects for the opposite.
 
+    Parameters
+    ----------
+    binary        : 2D or 3D boolean/label array (foreground = nonzero)
+    max_area_um2  : float, area threshold in µm² (regions strictly above this are removed)
+    pixel_size_um : float, lateral pixel size in µm (x and y, isotropic)
 
+    Returns
+    -------
+    bool ndarray of the same shape, with oversized regions set to False.
+    """
+    max_area_px = max_area_um2 / (pixel_size_um ** 2)
 
+    def _filter_plane(plane):
+        labeled = measure.label(plane)
+        sizes = np.bincount(labeled.ravel())
+        remove = np.where(sizes > max_area_px)[0]
+        remove = remove[remove != 0]  # keep background label 0
+        out = np.asarray(plane, dtype=bool).copy()
+        if remove.size:
+            out[np.isin(labeled, remove)] = False
+        return out
+
+    binary = np.asarray(binary)
+    if binary.ndim == 2:
+        return _filter_plane(binary)
+    out = np.zeros(binary.shape, dtype=bool)
+    for z in range(binary.shape[0]):
+        out[z] = _filter_plane(binary[z])
+    return out

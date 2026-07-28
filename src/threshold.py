@@ -83,10 +83,24 @@ def adapted_sauvola_threshold_3d(image, window_size=(5, 15, 15), k=0.1, r=None):
 
     return threshold, binary
 
-def normalize_img(image): 
-    # Normalize entire 3D stack at once
-    normalized_img = img_as_float(rescale_intensity(image, out_range=(0, 1)))
-    return  normalized_img
+def normalize_img(image, p_low=0.5, p_high=99.5):
+    """Global normalization of the whole array to [0, 1] with robust percentile clipping.
+
+    Instead of plain min-max (where a single bright outlier voxel maps to 1.0 and
+    compresses everything else), the intensity range is clipped to the p_low / p_high
+    percentiles of the WHOLE array before rescaling. This is more robust for
+    fluorescence z-stacks with hot pixels / bright artefacts. Percentiles are taken
+    globally so relative intensity across depth is preserved (dim deep planes stay dim).
+
+    Pass p_low=0, p_high=100 to recover plain global min-max.
+    """
+    v_low, v_high = np.percentile(image, [p_low, p_high])
+    if v_high <= v_low:                      # flat/degenerate input guard
+        v_high = v_low + 1e-8
+    normalized_img = img_as_float(
+        rescale_intensity(image, in_range=(v_low, v_high), out_range=(0, 1))
+    )
+    return normalized_img
 
 def savola_3D_image(preprocessed_image_stack, window_size, k=0.1, r=0.5, threeD = True): 
     

@@ -99,10 +99,13 @@ def savola_3D_image(preprocessed_image_stack, window_size, k=0.1, r=0.5, threeD 
         thresh, binary_sauvola_img = adapted_sauvola_threshold_3d(
             norm_img, window_size=window_size, k=k, r=r
         )
-    else: 
+    else:
+        # normalize the WHOLE stack once (global) instead of per-slice, so deep,
+        # low-signal planes are not artificially amplified into noise before the
+        # per-plane 2D thresholding below
+        norm_img = normalize_img(preprocessed_image_stack)
         for plane_idx in range(preprocessed_image_stack.shape[0]):
-            norm_slice = normalize_img(preprocessed_image_stack[plane_idx])  # per-slice norm
-            thresh, binary = adapted_sauvola_threshold(norm_slice, window_size, k, r=0.5)
+            thresh, binary = adapted_sauvola_threshold(norm_img[plane_idx], window_size, k, r=r)
             binary_sauvola_img[plane_idx] = binary
 
     return binary_sauvola_img

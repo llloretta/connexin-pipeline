@@ -125,42 +125,6 @@ def savola_3D_image(preprocessed_image_stack,v_low, v_high, window_size, k=0.1, 
 
     return binary_sauvola_img
 
-### adaptation for 3D savola smaller batches with stitching
-
-
-
-def _sauvola_chunk(chunk, window_size, k, r):
-    thresh = threshold_sauvola(chunk, window_size=window_size, k=k, r=r)
-    return chunk > thresh
-
-def sauvola_3d_parallel(
-    preprocessed_image_stack,
-    window_size,
-    k=0.1,
-    r=0.5,
-    chunk_shape=(64, 512, 512),
-):
-    norm_img = normalize_img(preprocessed_image_stack).astype(np.float32)
-
-    darr = da.from_array(norm_img, chunks=chunk_shape)
-
-    # handle window_size as either a single int or a per-axis tuple
-    if isinstance(window_size, (tuple, list)):
-        depth = tuple(w // 2 + 1 for w in window_size)
-    else:
-        depth = window_size // 2 + 1
-
-    binary = darr.map_overlap(
-        _sauvola_chunk,
-        depth=depth,
-        boundary="reflect",
-        window_size=window_size,
-        k=k,
-        r=r,
-        dtype=bool,
-    )
-
-    return binary.compute()
 
 
 

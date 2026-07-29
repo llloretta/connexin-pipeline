@@ -83,7 +83,7 @@ def adapted_sauvola_threshold_3d(image, window_size=(5, 15, 15), k=0.1, r=None):
 
     return threshold, binary
 
-def normalize_img(image, p_low=0.5, p_high=99.5):
+def normalize_img(image, v_low, v_high):
     """Global normalization of the whole array to [0, 1] with robust percentile clipping.
 
     Instead of plain min-max (where a single bright outlier voxel maps to 1.0 and
@@ -94,7 +94,8 @@ def normalize_img(image, p_low=0.5, p_high=99.5):
 
     Pass p_low=0, p_high=100 to recover plain global min-max.
     """
-    v_low, v_high = np.percentile(image, [p_low, p_high])
+    # v_low, v_high = np.percentile(image, [p_low, p_high])
+
     if v_high <= v_low:                      # flat/degenerate input guard
         v_high = v_low + 1e-8
     normalized_img = img_as_float(
@@ -102,14 +103,14 @@ def normalize_img(image, p_low=0.5, p_high=99.5):
     )
     return normalized_img
 
-def savola_3D_image(preprocessed_image_stack, window_size, k=0.1, r=0.5, threeD = True): 
+def savola_3D_image(preprocessed_image_stack,v_low, v_high, window_size, k=0.1, r=0.5, threeD = True): 
     
     # create an empty matrix in the same shape as the preprocessed image to store the binary results
     binary_sauvola_img = np.zeros_like(preprocessed_image_stack, dtype=bool)
 
     if threeD:
         # normalize and threshold the WHOLE stack at once — no slice loop
-        norm_img = normalize_img(preprocessed_image_stack)
+        norm_img = normalize_img(preprocessed_image_stack, v_low, v_high)
         thresh, binary_sauvola_img = adapted_sauvola_threshold_3d(
             norm_img, window_size=window_size, k=k, r=r
         )
@@ -117,7 +118,7 @@ def savola_3D_image(preprocessed_image_stack, window_size, k=0.1, r=0.5, threeD 
         # normalize the WHOLE stack once (global) instead of per-slice, so deep,
         # low-signal planes are not artificially amplified into noise before the
         # per-plane 2D thresholding below
-        norm_img = normalize_img(preprocessed_image_stack)
+        norm_img = normalize_img(preprocessed_image_stack, v_low, v_high)
         for plane_idx in range(preprocessed_image_stack.shape[0]):
             thresh, binary = adapted_sauvola_threshold(norm_img[plane_idx], window_size, k, r=r)
             binary_sauvola_img[plane_idx] = binary

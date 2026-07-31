@@ -68,7 +68,7 @@ def adapted_sauvola_threshold_3d(image, window_size=(5, 15, 15), k=0.1, r=None):
     threshold : 3D ndarray
     binary    : 3D boolean array
     """
-    image = image.astype(np.float64)
+    image = image.astype(np.float32)  # float32 (not 64) to keep the full-stack 3D filters in memory
 
     if r is None:
         r = 0.5 if image.max() <= 1.0 else 128.0

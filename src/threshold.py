@@ -103,16 +103,50 @@ def normalize_img(image, v_low, v_high):
     )
     return normalized_img
 
-def savola_3D_image(preprocessed_image_stack,v_low, v_high, window_size, k=0.1, r=0.5, threeD = True): 
+def adapted_sauvola_3d_blockwise(stack, v_low, v_high, window_size, k=0.15, r=0.5, z_block=32):
+    """Memory-safe 3D adapted Sauvola threshold (Ghaye light-on-dark).
+
+    Same result as ``adapted_sauvola_threshold_3d`` but computed in z-blocks with a halo,
+    so peak memory stays a few GB even on large stacks (the whole-array version allocates
+    ~8 full-volume float copies at once and OOMs on a ~3 GB stack).
+
+    Normalisation uses the fixed absolute bounds ``(v_low, v_high)`` — a per-element
+    operation, so block-wise is identical to whole-stack. y and x are processed at full
+    width per block (exact); only z is blocked, with a halo of ``wz//2 + 1`` planes so the
+    kept interior planes see the correct 3D neighbourhood. Only the true top/bottom of the
+    stack reflect, exactly as the whole-array version does.
+    """
+    ws = tuple(window_size) if isinstance(window_size, (tuple, list)) else (window_size,) * 3
+    wz = ws[0]
+    pad = wz // 2 + 1
+    nz = stack.shape[0]
+    inv = 1.0 / max(float(v_high) - float(v_low), 1e-8)
+    out = np.zeros(stack.shape, dtype=bool)
+
+    for z0 in range(0, nz, z_block):
+        z1 = min(z0 + z_block, nz)
+        a = max(0, z0 - pad)          # read the block with a z-halo of real neighbour planes
+        b = min(nz, z1 + pad)
+        # normalise this block to [0, 1] with the same absolute bounds (== rescale_intensity)
+        chunk = np.clip((stack[a:b].astype(np.float32) - v_low) * inv, 0.0, 1.0)
+        mean = uniform_filter(chunk, size=ws)
+        mean_sq = uniform_filter(chunk * chunk, size=ws)
+        std = np.sqrt(np.clip(mean_sq - mean * mean, 0, None))
+        threshold = mean + (mean - 1) * k * (std / r - 1)
+        binary = chunk > threshold
+        out[z0:z1] = binary[z0 - a: z0 - a + (z1 - z0)]   # drop the halo, keep the interior
+    return out
+
+
+def savola_3D_image(preprocessed_image_stack,v_low, v_high, window_size, k=0.1, r=0.5, threeD = True):
     
     # create an empty matrix in the same shape as the preprocessed image to store the binary results
     binary_sauvola_img = np.zeros_like(preprocessed_image_stack, dtype=bool)
 
     if threeD:
-        # normalize and threshold the WHOLE stack at once — no slice loop
-        norm_img = normalize_img(preprocessed_image_stack, v_low, v_high)
-        thresh, binary_sauvola_img = adapted_sauvola_threshold_3d(
-            norm_img, window_size=window_size, k=k, r=r
+        # 3D adapted Sauvola, computed in z-blocks so the full stack fits in memory
+        binary_sauvola_img = adapted_sauvola_3d_blockwise(
+            preprocessed_image_stack, v_low, v_high, window_size, k=k, r=r
         )
     else:
         # normalize the WHOLE stack once (global) instead of per-slice, so deep,

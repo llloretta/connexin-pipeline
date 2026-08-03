@@ -4,7 +4,42 @@ from scipy.ndimage import uniform_filter, generic_filter
 from skimage import img_as_float
 from skimage.exposure import rescale_intensity
 import dask.array as da
-from skimage.filters import threshold_sauvola
+from skimage.filters import threshold_sauvola, threshold_otsu
+
+
+def estimate_normalization_bounds(image, low_sigma=3.0, high_percentile=95.0, max_samples=4_000_000):
+    """Estimate robust per-image normalization bounds (v_low, v_high) from the intensity
+    structure, so the normalization adapts across acquisitions instead of using fixed constants.
+
+    v_low  : robust background floor = median + low_sigma * (1.4826 * MAD). The median/MAD track
+             the dominant background peak, so this sits just above the noise regardless of gain.
+    v_high : the `high_percentile` of the coarse-Otsu foreground. A global percentile fails here
+             because the plaques are sparse (any high percentile still lands in the background);
+             splitting off the foreground first makes the percentile land on real plaque signal.
+
+    Large stacks are subsampled (max_samples) for speed; the statistics are unaffected.
+    Returns (v_low, v_high) as floats.
+    """
+    arr = np.asarray(image)
+    step = max(1, arr.size // max_samples)
+    flat = np.asarray(arr.flat[::step], dtype=np.float64)   # only the subsample is materialized
+
+    med = np.median(flat)
+    mad = np.median(np.abs(flat - med))
+    v_low = med + low_sigma * 1.4826 * mad
+
+    try:
+        coarse = threshold_otsu(flat)                       # coarse foreground/background split
+    except Exception:
+        coarse = v_low
+    fg = flat[flat > coarse]
+    if fg.size < 100:                                       # fallback if the split leaves ~nothing
+        fg = flat[flat > v_low]
+    v_high = float(np.percentile(fg, high_percentile)) if fg.size else v_low + 1.0
+
+    if v_high <= v_low:
+        v_high = v_low + 1.0
+    return float(v_low), float(v_high)
 
 def adapted_sauvola_threshold(image, window_size=15, k=0.2, r=None):
     """

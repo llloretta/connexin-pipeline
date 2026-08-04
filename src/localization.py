@@ -28,7 +28,7 @@ def label_connexin_regions_3d(binary_stack, connectivity=1):
     return labeled_3d, n_components
 
 
-def get_region_properties_3d(labeled_3d, stack_float, spacing=(1.0, 0.325, 0.325)):
+def get_region_properties_3d(labeled_3d, stack_float, spacing=(0.766, 0.325, 0.325)):
     """
     Build a table of centre coordinates (voxel units), size, and mean intensity
     for each labeled region, accounting for anisotropic voxel spacing for volume.
@@ -36,9 +36,9 @@ def get_region_properties_3d(labeled_3d, stack_float, spacing=(1.0, 0.325, 0.325
     Parameters
     ----------
     labeled_3d  : 3D integer array from label_connexin_regions_3d (0 = background)
-    stack_float : 3D float array (z, y, x), same shape as labeled_3d, normalized to [0,1]
+    stack_float : 3D float array (z, y, x), same shape as labeled_3d
     spacing     : tuple (z, y, x) physical size of one voxel in µm.
-                  Default (1.0, 0.325, 0.325) matches z-step 1 µm, xy pixel 0.325 µm.
+                  Default (0.766, 0.325, 0.325) matches z-step 1 µm, xy pixel 0.325 µm.
                   Only used to compute physical volume (µm^3), not centroid position.
 
     Returns

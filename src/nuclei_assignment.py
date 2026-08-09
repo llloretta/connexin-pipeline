@@ -111,8 +111,9 @@ def match_connexin_to_nuclei_pairs(locations, edges, nuclei_coords_um,
     it lies closest to.
 
     For every connexin region, this checks the distance to every nuclei-pair
-    line segment and keeps the closest one. If the region is farther than
-    distance_threshold from every segment, it is left unassigned.
+    midpoint (the ~intercalated-disc position, halfway between the two nuclei)
+    and keeps the closest one. If the region is farther than distance_threshold
+    from every midpoint, it is left unassigned.
 
     Parameters
     ----------
@@ -138,18 +139,19 @@ def match_connexin_to_nuclei_pairs(locations, edges, nuclei_coords_um,
         Copy of `locations` with four new columns:
         - nucleus_1, nucleus_2 : the matched nuclei pair (NaN if unassigned)
         - nucleus_distance_um  : distance between that pair of nuclei
-        - region_to_line_um    : distance from the region to that pair's line
+        - region_to_line_um    : distance from the region centroid to that
+                                 pair's midpoint
     """
     spacing = np.asarray(spacing, dtype=float)
 
     # convert connexin region centroids from voxel units -> micrometers
     region_coords_um = locations[['z', 'y', 'x']].to_numpy() * spacing
 
-    # for every edge, get its two endpoints and the vector between them
+    # for every edge, take its midpoint (the ~intercalated-disc position,
+    # halfway between the two nuclei) as the single target point to match against
     nucleus_1_pos = nuclei_coords_um[edges['nucleus_1'].to_numpy()]
     nucleus_2_pos = nuclei_coords_um[edges['nucleus_2'].to_numpy()]
-    edge_vectors = nucleus_2_pos - nucleus_1_pos
-    edge_lengths_squared = np.sum(edge_vectors ** 2, axis=1)
+    edge_midpoints = (nucleus_1_pos + nucleus_2_pos) / 2.0
 
     matched_nucleus_1 = []
     matched_nucleus_2 = []
@@ -158,14 +160,8 @@ def match_connexin_to_nuclei_pairs(locations, edges, nuclei_coords_um,
 
     for region_point in region_coords_um:
 
-        # project the region onto every edge's line segment, clipped to stay
-        # between the two nuclei (not the infinite extension of the line)
-        vector_to_region = region_point[None, :] - nucleus_1_pos
-        projection_fraction = np.sum(vector_to_region * edge_vectors, axis=1) / edge_lengths_squared
-        projection_fraction = np.clip(projection_fraction, 0, 1)
-
-        closest_point_on_edge = nucleus_1_pos + projection_fraction[:, None] * edge_vectors
-        distance_to_edge = np.linalg.norm(region_point[None, :] - closest_point_on_edge, axis=1)
+        # distance from the region to every edge midpoint
+        distance_to_edge = np.linalg.norm(region_point[None, :] - edge_midpoints, axis=1)
 
         # keep only the single closest edge for this region
         closest_edge_index = np.argmin(distance_to_edge)

@@ -119,7 +119,7 @@ OUTPUTS = {
 SAMPLES = {
     # ---- original acquisition: reproduces the notebook paths exactly ----
     "sample_1": {
-        "out_dir":            "data",
+        "out_dir":            "data/sample_1",
         "raw_image":          "data/raw/corrected_images/cnx43.tif",
         "nuclei_mask":        "data/raw/nuclei_dataset/nuclei_1_raw_Object Identities_test-exported_data_Input.tiff",
         "nuclei_centers_csv": "data/raw/nuclei_dataset/corrected_nuclei_center.csv",  # used if it exists; else computed
@@ -133,8 +133,8 @@ SAMPLES = {
     # ---- new acquisition #2 (raw connexin + labelled nuclei in data/raw/sample_2) ----
     "sample_2": {
         "out_dir":            "data/raw/sample_2",
-        "raw_image":          "data/raw/sample_2/TODO_connexin_image.tif",   # TODO: exact filename
-        "nuclei_mask":        "data/raw/sample_2/TODO_labelled_nuclei.tiff", # TODO: exact filename
+        "raw_image":          "data/raw/sample_2/cnx43_1st_1X_pos1_raw_cropped.tif",   # TODO: exact filename
+        "nuclei_mask":        "data/raw/sample_2/sample_01_labels_all.tif", # TODO: exact filename
         "nuclei_centers_csv": None,                  # computed from the labelled nuclei mask
         "border_crop_yx":     (0, 0),                # TODO: raw connexin border crop, if any
         "seg_z_crop":         None,                  # TODO: (z0, z1) to match the nuclei frame
@@ -144,17 +144,17 @@ SAMPLES = {
     },
 
     # ---- new acquisition #3 (raw connexin + labelled nuclei in data/raw/sample_3) ----
-    "sample_3": {
-        "out_dir":            "data/raw/sample_3",
-        "raw_image":          "data/raw/sample_3/TODO_connexin_image.tif",   # TODO: exact filename
-        "nuclei_mask":        "data/raw/sample_3/TODO_labelled_nuclei.tiff", # TODO: exact filename
-        "nuclei_centers_csv": None,
-        "border_crop_yx":     (0, 0),                # TODO
-        "seg_z_crop":         None,                  # TODO
-        "seg_y_crop":         None,                  # TODO
-        "seg_x_crop":         None,                  # TODO
-        "nuclei_crop":        (None, None, None),    # TODO
-    },
+    # "sample_3": {
+    #     "out_dir":            "data/raw/sample_3",
+    #     "raw_image":          "data/raw/sample_3/cnx43_1st_1X_pos2_cropped.tif",   # TODO: exact filename
+    #     "nuclei_mask":        "data/raw/sample_3/sample_02_labels_all.tif", # TODO: exact filename
+    #     "nuclei_centers_csv": None,
+    #     "border_crop_yx":     (0, 0),                # TODO
+    #     "seg_z_crop":         None,                  # TODO
+    #     "seg_y_crop":         None,                  # TODO
+    #     "seg_x_crop":         None,                  # TODO
+    #     "nuclei_crop":        (None, None, None),    # TODO
+    # },
 }
 
 

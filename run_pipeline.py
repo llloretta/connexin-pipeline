@@ -11,14 +11,22 @@ array is in RAM at a time; the heavy ops are already chunked internally):
 
 All heavy lifting reuses the functions in ``src/``.
 
+Multiple tissue samples
+-----------------------
+Each acquisition is one entry in the ``SAMPLES`` dict below (its input files, its
+crops, and its tuning). Pick one with ``--sample``; every output for that sample is
+written *inside that sample's folder* (``out_dir``), so samples never overwrite each
+other. ``sample_1`` reproduces the original notebook paths exactly.
+
 Usage
 -----
-    python run_pipeline.py                         # run all four stages
-    python run_pipeline.py --stages segment,localize,assign
-    python run_pipeline.py --base-dir /path/to/project
+    python run_pipeline.py --sample sample_1                    # all four stages
+    python run_pipeline.py --sample sample_2                    # a new acquisition
+    python run_pipeline.py --sample sample_2 --stages segment,localize,assign
+    python run_pipeline.py --sample sample_3 --base-dir /path/to/project
 
-Edit the CONFIG dict below for a new acquisition (crops, radius, spacing, PSF path,
-paths, and the optional noise filters are all there).
+For a NEW acquisition: add/complete its entry in ``SAMPLES`` (raw image + labelled
+nuclei filenames and the per-sample crops), then run with ``--sample <name>``.
 """
 
 from __future__ import annotations
@@ -51,33 +59,18 @@ from nuclei_assignment import (                  # noqa: E402
 )
 
 # --------------------------------------------------------------------------- #
-# CONFIG — everything dataset-specific lives here. Adjust for a new acquisition.
+# COMMON — shared across every acquisition (same microscope / same algorithm
+# settings). Override any of these per sample inside SAMPLES if one differs.
 # --------------------------------------------------------------------------- #
-CONFIG = {
-    # ---- inputs ----
-    "raw_image":       "data/raw/corrected_images/cnx43.tif",
+COMMON = {
+    # ---- PSF (shared: same objective / channel for every acquisition) ----
     "psf_h5":          "data/raw/experimental_PSF/PSF_488nm_cnx.h5",
     "psf_dataset":     "PSF_488/ImageData/Image",           # dataset path inside the .h5
-    "nuclei_mask":     "data/raw/nuclei_dataset/nuclei_1_raw_Object Identities_test-exported_data_Input.tiff",
-    "nuclei_centers_csv": "data/raw/nuclei_dataset/corrected_nuclei_center.csv",  # used if it exists; else computed
-
-    # ---- intermediate / output files (written and re-read between stages) ----
-    "bg_removed":      "data/preprocessed/background_removed_img.tiff",
-    "deconvolved":     "data/preprocessed/background_removed_and_deconvolved_img.tiff",
-    "binary_mask":     "data/segmented/binary_sauvola3d_w9_21_21_k0_15.tiff",
-    "label_mask":      "data/segmented/labelled_sauvola3d_w9_21_21_k0_15.tiff",
-    "region_props":    "data/localization_binary_masks/region_properties.csv",
-    "matched":         "data/localization_binary_masks/matched_connexin_to_nuclei.csv",
 
     # ---- preprocessing ----
-    "border_crop_yx":  (15, 3),          # cnx_img[:, 15:, 3:] — top/left black border
     "rolling_ball_radius": 10,
     "rl_iterations":   7,
     "rl_method":       "gpu",            # RedLionfish falls back to CPU if no GPU
-
-    # ---- segmentation crop (must match how the nuclei/labels frame is defined) ----
-    "seg_z_crop":      (60, 501),        # preprocessed[60:501, :, 23:999]
-    "seg_x_crop":      (23, 999),
 
     # ---- Sauvola ----
     "sauvola_window":  (9, 21, 21),      # (z, y, x); z ~ isotropic given 0.766/0.325 spacing
@@ -95,10 +88,73 @@ CONFIG = {
     "spacing":         (0.766, 0.325, 0.325),   # (z, y, x) voxel size in micrometers
     "pixel_size_um":   0.325,                    # lateral, for the area filter
 
-    # ---- nucleus assignment ----
-    "nuclei_border_crop_y": 15,          # nuclei_mask[:, 15:, :]
-    "max_edge_distance": 52.3,           # um; Delaunay edge cutoff (see thesis: ~cell length)
-    "distance_threshold": 50.0,          # um; plaque-to-junction-line cutoff
+    # ---- nucleus assignment (matches notebook 4 cell 17) ----
+    "max_edge_distance": 140.0,          # um; Delaunay edge cutoff (~ one cell length)
+    "distance_threshold": 12.0,          # um; plaque-to-junction-midpoint cutoff
+}
+
+# Output layout, written *relative to each sample's out_dir* so everything for a
+# sample stays inside that sample's folder.
+OUTPUTS = {
+    "bg_removed":   "preprocessed/background_removed_img.tiff",
+    "deconvolved":  "preprocessed/background_removed_and_deconvolved_img.tiff",
+    "binary_mask":  "segmented/binary_sauvola3d_w9_21_21_k0_15.tiff",
+    "label_mask":   "segmented/labelled_sauvola3d_w9_21_21_k0_15.tiff",
+    "region_props": "localization_binary_masks/region_properties.csv",
+    "matched":      "localization_binary_masks/matched_connexin_to_nuclei.csv",
+    "summary":      "summary.txt",
+}
+
+# --------------------------------------------------------------------------- #
+# SAMPLES — one entry per tissue sample. Crops are per-sample; a crop of None
+# (or (0, 0) for the raw border) means "no crop on that axis".
+#
+# Crop conventions:
+#   border_crop_yx : (y0, x0) removed from the RAW connexin stack -> cnx[:, y0:, x0:]
+#   seg_{z,y,x}_crop : (start, stop) or None, applied to the DECONVOLVED stack
+#   nuclei_crop    : (z, y, x) each (start, stop) or None, applied to the nuclei mask
+# The segmentation crop and the nuclei crop MUST bring the connexin and the nuclei
+# into the same voxel frame (same z/y/x extent) — that is what the assignment relies on.
+# --------------------------------------------------------------------------- #
+SAMPLES = {
+    # ---- original acquisition: reproduces the notebook paths exactly ----
+    "sample_1": {
+        "out_dir":            "data",
+        "raw_image":          "data/raw/corrected_images/cnx43.tif",
+        "nuclei_mask":        "data/raw/nuclei_dataset/nuclei_1_raw_Object Identities_test-exported_data_Input.tiff",
+        "nuclei_centers_csv": "data/raw/nuclei_dataset/corrected_nuclei_center.csv",  # used if it exists; else computed
+        "border_crop_yx":     (15, 3),              # cnx[:, 15:, 3:]
+        "seg_z_crop":         (60, 501),            # deconvolved[60:501, :, 23:999]
+        "seg_y_crop":         None,
+        "seg_x_crop":         (23, 999),
+        "nuclei_crop":        (None, (15, None), None),   # nuclei_mask[:, 15:, :]
+    },
+
+    # ---- new acquisition #2 (raw connexin + labelled nuclei in data/raw/sample_2) ----
+    "sample_2": {
+        "out_dir":            "data/raw/sample_2",
+        "raw_image":          "data/raw/sample_2/TODO_connexin_image.tif",   # TODO: exact filename
+        "nuclei_mask":        "data/raw/sample_2/TODO_labelled_nuclei.tiff", # TODO: exact filename
+        "nuclei_centers_csv": None,                  # computed from the labelled nuclei mask
+        "border_crop_yx":     (0, 0),                # TODO: raw connexin border crop, if any
+        "seg_z_crop":         None,                  # TODO: (z0, z1) to match the nuclei frame
+        "seg_y_crop":         None,                  # TODO: (y0, y1)
+        "seg_x_crop":         None,                  # TODO: (x0, x1)
+        "nuclei_crop":        (None, None, None),    # TODO: crop the nuclei mask into the same frame
+    },
+
+    # ---- new acquisition #3 (raw connexin + labelled nuclei in data/raw/sample_3) ----
+    "sample_3": {
+        "out_dir":            "data/raw/sample_3",
+        "raw_image":          "data/raw/sample_3/TODO_connexin_image.tif",   # TODO: exact filename
+        "nuclei_mask":        "data/raw/sample_3/TODO_labelled_nuclei.tiff", # TODO: exact filename
+        "nuclei_centers_csv": None,
+        "border_crop_yx":     (0, 0),                # TODO
+        "seg_z_crop":         None,                  # TODO
+        "seg_y_crop":         None,                  # TODO
+        "seg_x_crop":         None,                  # TODO
+        "nuclei_crop":        (None, None, None),    # TODO
+    },
 }
 
 
@@ -106,24 +162,46 @@ CONFIG = {
 # helpers
 # --------------------------------------------------------------------------- #
 def _p(rel: str) -> Path:
-    """Resolve a CONFIG-relative path against BASE_DIR."""
+    """Resolve a project-relative path against BASE_DIR."""
     return BASE_DIR / rel
+
+
+def _out(cfg: dict, key: str) -> Path:
+    """Resolve an output path inside this sample's out_dir."""
+    return BASE_DIR / cfg["out_dir"] / OUTPUTS[key]
 
 
 def _log(msg: str) -> None:
     print(f"[pipeline] {msg}", flush=True)
 
 
-def _free(*names_and_values) -> None:
-    """Delete large arrays and collect, to keep peak memory low between steps."""
-    del names_and_values
-    gc.collect()
+def _slice(spec) -> slice:
+    """Turn a (start, stop) tuple (or None) into a slice; None -> full axis."""
+    if spec is None:
+        return slice(None)
+    start, stop = spec
+    return slice(start, stop)
+
+
+def _apply_crop(arr: np.ndarray, zc=None, yc=None, xc=None) -> np.ndarray:
+    """Crop a (z, y, x) array; each of zc/yc/xc is a (start, stop) tuple or None."""
+    return arr[_slice(zc), _slice(yc), _slice(xc)]
+
+
+def resolve_config(sample: str) -> dict:
+    """Merge COMMON + the chosen sample's overrides into a single flat config."""
+    if sample not in SAMPLES:
+        raise KeyError(f"unknown sample {sample!r}; choose from {list(SAMPLES)}")
+    cfg = dict(COMMON)
+    cfg.update(SAMPLES[sample])
+    cfg["sample"] = sample
+    return cfg
 
 
 # --------------------------------------------------------------------------- #
 # Stage 1 — preprocess (from 1_1)
 # --------------------------------------------------------------------------- #
-def stage_preprocess(cfg: dict) -> None:
+def stage_preprocess(cfg: dict, summary: dict) -> None:
     import h5py                                   # local: only stage 1 needs these
     import RedLionfishDeconv as rl
 
@@ -137,9 +215,9 @@ def stage_preprocess(cfg: dict) -> None:
     bg_removed = remove_background_rolling_ball_3d(cnx, radius=cfg["rolling_ball_radius"], n_jobs=-1)
     del cnx; gc.collect()
 
-    _p(cfg["bg_removed"]).parent.mkdir(parents=True, exist_ok=True)
-    io.imsave(_p(cfg["bg_removed"]), bg_removed)
-    _log(f"  saved {cfg['bg_removed']}")
+    _out(cfg, "bg_removed").parent.mkdir(parents=True, exist_ok=True)
+    io.imsave(_out(cfg, "bg_removed"), bg_removed)
+    _log(f"  saved {_out(cfg, 'bg_removed')}")
 
     # ---- PSF: load, reduce to 3D, centre on the brightest slice, normalise to sum 1 ----
     _log("  preparing PSF")
@@ -160,9 +238,9 @@ def stage_preprocess(cfg: dict) -> None:
     )
     del image_f32; gc.collect()
 
-    _p(cfg["deconvolved"]).parent.mkdir(parents=True, exist_ok=True)
-    io.imsave(_p(cfg["deconvolved"]), result)
-    _log(f"  saved {cfg['deconvolved']}")
+    _out(cfg, "deconvolved").parent.mkdir(parents=True, exist_ok=True)
+    io.imsave(_out(cfg, "deconvolved"), result)
+    _log(f"  saved {_out(cfg, 'deconvolved')}")
     del result, psf; gc.collect()
 
 
@@ -170,14 +248,12 @@ def stage_preprocess(cfg: dict) -> None:
 # Stage 2 — segment (from 2_1)
 # --------------------------------------------------------------------------- #
 def _crop_seg(stack: np.ndarray, cfg: dict) -> np.ndarray:
-    z0, z1 = cfg["seg_z_crop"]
-    x0, x1 = cfg["seg_x_crop"]
-    return stack[z0:z1, :, x0:x1]
+    return _apply_crop(stack, cfg["seg_z_crop"], cfg.get("seg_y_crop"), cfg["seg_x_crop"])
 
 
-def stage_segment(cfg: dict) -> None:
+def stage_segment(cfg: dict, summary: dict) -> None:
     _log("segment: loading deconvolved image")
-    deconv = _crop_seg(io.imread(_p(cfg["deconvolved"])), cfg)
+    deconv = _crop_seg(io.imread(_out(cfg, "deconvolved")), cfg)
     _log(f"  cropped segmentation frame {deconv.shape}")
 
     v_low, v_high = estimate_normalization_bounds(
@@ -202,28 +278,29 @@ def stage_segment(cfg: dict) -> None:
             binary, max_area_um2=cfg["max_area_um2"], pixel_size_um=cfg["pixel_size_um"])
         _log(f"  remove_regions_above_area({cfg['max_area_um2']} um^2) applied")
 
-    _p(cfg["binary_mask"]).parent.mkdir(parents=True, exist_ok=True)
-    io.imsave(_p(cfg["binary_mask"]), img_as_ubyte(binary))
-    _log(f"  saved {cfg['binary_mask']}")
+    _out(cfg, "binary_mask").parent.mkdir(parents=True, exist_ok=True)
+    io.imsave(_out(cfg, "binary_mask"), img_as_ubyte(binary))
+    _log(f"  saved {_out(cfg, 'binary_mask')}")
 
     _log("  labelling connected regions in 3D")
     labeled_3d, n_components = label_connexin_regions_3d(binary)
     del binary; gc.collect()
-    _log(f"  3D connected regions: {n_components}")
+    _log(f"  3D connected regions (candidate plaques): {n_components}")
+    summary["n_plaques_3d"] = int(n_components)
 
     # save labels as int32 (NOT img_as_ubyte, which would corrupt >255 labels)
-    io.imsave(_p(cfg["label_mask"]), labeled_3d.astype(np.int32))
-    _log(f"  saved {cfg['label_mask']}")
+    io.imsave(_out(cfg, "label_mask"), labeled_3d.astype(np.int32))
+    _log(f"  saved {_out(cfg, 'label_mask')}")
     del labeled_3d; gc.collect()
 
 
 # --------------------------------------------------------------------------- #
 # Stage 3 — localize (from 3)
 # --------------------------------------------------------------------------- #
-def stage_localize(cfg: dict) -> None:
+def stage_localize(cfg: dict, summary: dict) -> None:
     _log("localize: loading labels + deconvolved (intensity image)")
-    labeled_3d = io.imread(_p(cfg["label_mask"]))
-    deconv = _crop_seg(io.imread(_p(cfg["deconvolved"])), cfg)
+    labeled_3d = io.imread(_out(cfg, "label_mask"))
+    deconv = _crop_seg(io.imread(_out(cfg, "deconvolved")), cfg)
     if deconv.shape != labeled_3d.shape:
         raise ValueError(f"shape mismatch: labels {labeled_3d.shape} vs deconvolved {deconv.shape}")
 
@@ -231,29 +308,33 @@ def stage_localize(cfg: dict) -> None:
     locations = get_region_properties_3d(labeled_3d, deconv, spacing=cfg["spacing"])
     del labeled_3d, deconv; gc.collect()
 
-    _p(cfg["region_props"]).parent.mkdir(parents=True, exist_ok=True)
-    locations.to_csv(_p(cfg["region_props"]), index=False)
-    _log(f"  saved {cfg['region_props']} ({len(locations)} plaques)")
+    _out(cfg, "region_props").parent.mkdir(parents=True, exist_ok=True)
+    locations.to_csv(_out(cfg, "region_props"), index=False)
+    _log(f"  saved {_out(cfg, 'region_props')} ({len(locations)} plaques)")
+    summary["n_plaques_3d"] = int(len(locations))
 
 
 # --------------------------------------------------------------------------- #
 # Stage 4 — assign (from 4)
 # --------------------------------------------------------------------------- #
-def stage_assign(cfg: dict) -> None:
+def stage_assign(cfg: dict, summary: dict) -> None:
     import pandas as pd
 
     _log("assign: loading region properties")
-    df_regions = pd.read_csv(_p(cfg["region_props"]))
+    df_regions = pd.read_csv(_out(cfg, "region_props"))
+    summary.setdefault("n_plaques_3d", int(len(df_regions)))
 
-    centers_csv = _p(cfg["nuclei_centers_csv"])
-    if centers_csv.exists():
+    centers_csv = _p(cfg["nuclei_centers_csv"]) if cfg["nuclei_centers_csv"] else None
+    if centers_csv is not None and centers_csv.exists():
         _log(f"  loading nuclei centers from {cfg['nuclei_centers_csv']}")
         df_centers = pd.read_csv(centers_csv)
     else:
-        _log("  computing nuclei centers from the nuclei mask")
-        mask = io.imread(_p(cfg["nuclei_mask"]))[:, cfg["nuclei_border_crop_y"]:, :]
+        _log("  computing nuclei centers from the labelled nuclei mask")
+        mask = _apply_crop(io.imread(_p(cfg["nuclei_mask"])), *cfg["nuclei_crop"])
         df_centers = get_nuclei_centerpoints(mask)
         del mask; gc.collect()
+    summary["n_nuclei"] = int(len(df_centers))
+    _log(f"  nuclei: {summary['n_nuclei']}")
 
     _log("  building nuclei neighbour graph (Delaunay)")
     edges, nuclei_coords_um = build_nuclei_edges(
@@ -265,10 +346,11 @@ def stage_assign(cfg: dict) -> None:
         df_regions, edges, nuclei_coords_um,
         spacing=cfg["spacing"], distance_threshold=cfg["distance_threshold"])
 
-    _p(cfg["matched"]).parent.mkdir(parents=True, exist_ok=True)
-    matched.to_csv(_p(cfg["matched"]), index=False)
+    _out(cfg, "matched").parent.mkdir(parents=True, exist_ok=True)
+    matched.to_csv(_out(cfg, "matched"), index=False)
     n_assigned = int(matched["nucleus_1"].notna().sum())
-    _log(f"  saved {cfg['matched']} ({n_assigned}/{len(matched)} plaques assigned)")
+    summary["n_assigned"] = n_assigned
+    _log(f"  saved {_out(cfg, 'matched')} ({n_assigned}/{len(matched)} plaques assigned)")
 
 
 # --------------------------------------------------------------------------- #
@@ -280,9 +362,31 @@ STAGES = {
 }
 
 
+def _report_summary(cfg: dict, summary: dict) -> None:
+    """Print and save the requested per-sample numbers."""
+    lines = [
+        "==================== pipeline summary ====================",
+        f"Tissue sample              : {summary.get('sample', cfg['sample'])}",
+        f"Number of nuclei           : {summary.get('n_nuclei', 'n/a')}",
+        f"Number of 3D candidate plaques : {summary.get('n_plaques_3d', 'n/a')}",
+    ]
+    if "n_assigned" in summary:
+        lines.append(f"Plaques assigned to a pair : {summary['n_assigned']}")
+    lines.append("=========================================================")
+    text = "\n".join(lines)
+    print(text, flush=True)
+
+    out = _out(cfg, "summary")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(text + "\n")
+    _log(f"summary written to {out}")
+
+
 def main() -> None:
     global BASE_DIR
     parser = argparse.ArgumentParser(description="Run the connexin-43 pipeline.")
+    parser.add_argument("--sample", default="sample_1",
+                        help=f"which acquisition to run; choose from {list(SAMPLES)}")
     parser.add_argument("--stages", default="preprocess,segment,localize,assign",
                         help="comma-separated subset of: preprocess,segment,localize,assign")
     parser.add_argument("--base-dir", default=None,
@@ -292,14 +396,22 @@ def main() -> None:
     if args.base_dir:
         BASE_DIR = Path(args.base_dir).resolve()
 
+    if args.sample not in SAMPLES:
+        parser.error(f"unknown sample {args.sample!r}; choose from {list(SAMPLES)}")
+    cfg = resolve_config(args.sample)
+
     requested = [s.strip() for s in args.stages.split(",") if s.strip()]
     unknown = [s for s in requested if s not in STAGES]
     if unknown:
         parser.error(f"unknown stage(s): {unknown}; choose from {list(STAGES)}")
 
+    summary = {"sample": args.sample}
+    _log(f"### tissue sample: {args.sample} | out_dir: {cfg['out_dir']} ###")
     for name in requested:
         _log(f"=== stage: {name} ===")
-        STAGES[name](CONFIG)
+        STAGES[name](cfg, summary)
+
+    _report_summary(cfg, summary)
     _log("done.")
 
 

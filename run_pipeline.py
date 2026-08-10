@@ -6,6 +6,7 @@ array is in RAM at a time; the heavy ops are already chunked internally):
 
     1. preprocess : rolling-ball background subtraction + Richardson-Lucy deconvolution
     2. segment    : 3D adapted Sauvola threshold + 3D connected-component labelling
+       figures    : RAW / preprocessed / Sauvola comparison figure for one plane
     3. localize   : per-plaque property table (centroid, size, volume, mean intensity)
     4. assign     : match plaques to nuclei-pair (cell-cell contact) via Delaunay graph
 
@@ -92,6 +93,11 @@ COMMON = {
     # ---- nucleus assignment (matches notebook 4 cell 17) ----
     "max_edge_distance": 140.0,          # um; Delaunay edge cutoff (~ one cell length)
     "distance_threshold": 12.0,          # um; plaque-to-junction-midpoint cutoff
+
+    # ---- QC figure ----
+    "figure_plane":     160,             # z-plane (in the FULL deconvolved/raw frame) for the
+                                         # RAW / preprocessed / segmented comparison figure
+    "figure_vmax_pct":  99.5,            # robust display vmax percentile for the grayscale panels
 }
 
 # Output layout, written *relative to each sample's out_dir* so everything for a
@@ -103,6 +109,8 @@ OUTPUTS = {
     "label_mask":   "segmented/labelled_sauvola3d_w9_21_21_k0_15.tiff",
     "region_props": "localization_binary_masks/region_properties.csv",
     "matched":      "localization_binary_masks/matched_connexin_to_nuclei.csv",
+    "edges":        "localization_binary_masks/nuclei_edges.csv",
+    "seg_figure":   "figures/segmentation_comparison_plane{plane}.png",
     "summary":      "summary.txt",
 }
 
@@ -167,9 +175,14 @@ def _p(rel: str) -> Path:
     return BASE_DIR / rel
 
 
-def _out(cfg: dict, key: str) -> Path:
-    """Resolve an output path inside this sample's out_dir."""
-    return BASE_DIR / cfg["out_dir"] / OUTPUTS[key]
+def _out(cfg: dict, key: str, **fmt) -> Path:
+    """Resolve an output path inside this sample's out_dir.
+
+    Any ``{name}`` placeholders in the OUTPUTS template are filled from **fmt
+    (e.g. _out(cfg, "seg_figure", plane=160)).
+    """
+    rel = OUTPUTS[key].format(**fmt) if fmt else OUTPUTS[key]
+    return BASE_DIR / cfg["out_dir"] / rel
 
 
 def _log(msg: str) -> None:
@@ -299,6 +312,59 @@ def stage_segment(cfg: dict, summary: dict) -> None:
 
 
 # --------------------------------------------------------------------------- #
+# Figures — per-sample QC (RAW vs preprocessed vs Sauvola segmentation, one plane)
+# --------------------------------------------------------------------------- #
+def stage_figures(cfg: dict, summary: dict) -> None:
+    import tifffile
+    import matplotlib
+    matplotlib.use("Agg")               # file output only, no display
+    import matplotlib.pyplot as plt
+
+    plane = int(cfg["figure_plane"])
+    z0 = cfg["seg_z_crop"][0] if cfg["seg_z_crop"] else 0
+
+    # cropped-frame depth of the mask, read cheaply from the file header
+    with tifffile.TiffFile(_out(cfg, "binary_mask")) as tf:
+        n_cropped = tf.series[0].shape[0]
+
+    # figure_plane is in the FULL (raw/deconvolved) frame; clamp it to the segmented range
+    plane = int(np.clip(plane, z0, z0 + n_cropped - 1))
+    mask_idx = plane - z0
+    if plane != cfg["figure_plane"]:
+        _log(f"figures: requested plane {cfg['figure_plane']} outside segmented range "
+             f"[{z0}, {z0 + n_cropped - 1}]; using plane {plane}")
+
+    yc, xc = cfg.get("seg_y_crop"), cfg["seg_x_crop"]
+    cy, cx = cfg["border_crop_yx"]
+
+    # single-plane reads (avoid loading whole stacks)
+    raw_plane = tifffile.imread(_p(cfg["raw_image"]), key=plane)[cy:, cx:]     # border crop
+    raw_plane = raw_plane[_slice(yc), _slice(xc)]                             # segmentation crop
+    deconv_plane = tifffile.imread(_out(cfg, "deconvolved"), key=plane)[_slice(yc), _slice(xc)]
+    seg_plane = tifffile.imread(_out(cfg, "binary_mask"), key=mask_idx) > 0
+
+    pct = cfg["figure_vmax_pct"]
+    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    axes[0].imshow(raw_plane, cmap="gray", vmin=0, vmax=np.percentile(raw_plane, pct))
+    axes[0].set_title(f"RAW (plane {plane})")
+    axes[1].imshow(deconv_plane, cmap="gray", vmin=0, vmax=np.percentile(deconv_plane, pct))
+    axes[1].set_title("Preprocessed (bg-removed + deconvolved)")
+    axes[2].imshow(deconv_plane, cmap="gray", vmin=0, vmax=np.percentile(deconv_plane, pct))
+    axes[2].contour(seg_plane, levels=[0.5], colors="red", linewidths=0.5)
+    axes[2].set_title("Sauvola segmentation (red)")
+    for ax in axes:
+        ax.axis("off")
+    fig.suptitle(f"{cfg['sample']} — segmentation comparison, plane {plane}")
+    fig.tight_layout()
+
+    out_png = _out(cfg, "seg_figure", plane=plane)
+    out_png.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_png, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    _log(f"  saved {out_png}")
+
+
+# --------------------------------------------------------------------------- #
 # Stage 3 — localize (from 3)
 # --------------------------------------------------------------------------- #
 def stage_localize(cfg: dict, summary: dict) -> None:
@@ -345,6 +411,11 @@ def stage_assign(cfg: dict, summary: dict) -> None:
         df_centers[["z", "y", "x"]].values,
         spacing=cfg["spacing"], max_edge_distance=cfg["max_edge_distance"])
 
+    _out(cfg, "edges").parent.mkdir(parents=True, exist_ok=True)
+    edges.to_csv(_out(cfg, "edges"), index=False)
+    summary["n_edges"] = int(len(edges))
+    _log(f"  saved {_out(cfg, 'edges')} ({len(edges)} candidate cell-cell edges)")
+
     _log("  matching plaques to nuclei pairs")
     matched = match_connexin_to_nuclei_pairs(
         df_regions, edges, nuclei_coords_um,
@@ -361,6 +432,7 @@ def stage_assign(cfg: dict, summary: dict) -> None:
 STAGES = {
     "preprocess": stage_preprocess,
     "segment":    stage_segment,
+    "figures":    stage_figures,
     "localize":   stage_localize,
     "assign":     stage_assign,
 }
@@ -374,6 +446,8 @@ def _report_summary(cfg: dict, summary: dict) -> None:
         f"Number of nuclei           : {summary.get('n_nuclei', 'n/a')}",
         f"Number of 3D candidate plaques : {summary.get('n_plaques_3d', 'n/a')}",
     ]
+    if "n_edges" in summary:
+        lines.append(f"Candidate cell-cell edges  : {summary['n_edges']}")
     if "n_assigned" in summary:
         lines.append(f"Plaques assigned to a pair : {summary['n_assigned']}")
     lines.append("=========================================================")
@@ -391,8 +465,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run the connexin-43 pipeline.")
     parser.add_argument("--sample", default="sample_1",
                         help=f"which acquisition to run; choose from {list(SAMPLES)}")
-    parser.add_argument("--stages", default="preprocess,segment,localize,assign",
-                        help="comma-separated subset of: preprocess,segment,localize,assign")
+    parser.add_argument("--stages", default="preprocess,segment,figures,localize,assign",
+                        help="comma-separated subset of: preprocess,segment,figures,localize,assign")
     parser.add_argument("--base-dir", default=None,
                         help="project root (defaults to the directory of this script)")
     args = parser.parse_args()

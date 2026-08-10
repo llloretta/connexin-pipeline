@@ -7,39 +7,79 @@ import dask.array as da
 from skimage.filters import threshold_sauvola, threshold_otsu
 
 
-def estimate_normalization_bounds(image, low_sigma=3.0, high_percentile=95.0, max_samples=4_000_000):
-    """Estimate robust per-image normalization bounds (v_low, v_high) from the intensity
-    structure, so the normalization adapts across acquisitions instead of using fixed constants.
+def estimate_normalization_bounds(image, low_sigma=3.0, high_percentile=99.5,
+                                  tissue_plane_frac=0.1, max_samples=4_000_000,
+                                  return_debug=False):
+    """Estimate robust per-image normalization bounds (v_low, v_high) that transfer across
+    acquisitions with different background fractions and different absolute max values.
 
-    v_low  : robust background floor = median + low_sigma * (1.4826 * MAD). The median/MAD track
-             the dominant background peak, so this sits just above the noise regardless of gain.
-    v_high : the `high_percentile` of the coarse-Otsu foreground. A global percentile fails here
-             because the plaques are sparse (any high percentile still lands in the background);
-             splitting off the foreground first makes the percentile land on real plaque signal.
+    The estimate is restricted to *tissue-bearing planes* so the near-empty first/last planes
+    (little tissue) do not skew the statistics, and the ceiling is taken from each sample's own
+    signal so it auto-adapts to differing brightness:
+
+    tissue planes : per-plane mean intensity >= min + tissue_plane_frac * (max - min). This drops
+                    the empty top/bottom planes automatically (fallback: all planes if <3 survive).
+    v_low  : robust background floor = median + low_sigma * (1.4826 * MAD), over the tissue-plane
+             voxels. The median/MAD track the dominant background peak, so this sits just above
+             the noise regardless of gain.
+    v_high : the `high_percentile` (default 99.5) of the *above-background* voxels (> v_low) on the
+             tissue planes. A global percentile fails because the plaques are sparse; measuring the
+             percentile only on real signal (above the background floor) makes v_high land on
+             bright plaque signal and scale with each sample's own intensity. (This replaces the
+             earlier single global Otsu split, which is unstable on background-dominated histograms.)
 
     Large stacks are subsampled (max_samples) for speed; the statistics are unaffected.
-    Returns (v_low, v_high) as floats.
+    Returns (v_low, v_high) as floats, or (v_low, v_high, debug_dict) when return_debug=True.
     """
     arr = np.asarray(image)
-    step = max(1, arr.size // max_samples)
-    flat = np.asarray(arr.flat[::step], dtype=np.float64)   # only the subsample is materialized
+
+    # ---- 1. keep only tissue-bearing planes (exclude near-empty top/bottom) ----
+    if arr.ndim == 3 and arr.shape[0] >= 3:
+        plane_mean = arr.reshape(arr.shape[0], -1).mean(axis=1)
+        lo, hi = float(plane_mean.min()), float(plane_mean.max())
+        thr = lo + tissue_plane_frac * (hi - lo)
+        tissue = plane_mean >= thr
+        if int(tissue.sum()) < 3:                          # degenerate -> use everything
+            tissue = np.ones(arr.shape[0], dtype=bool)
+        core = arr[tissue]
+        tissue_idx = np.flatnonzero(tissue)
+        z_range = (int(tissue_idx[0]), int(tissue_idx[-1]))
+        n_tissue = int(tissue.sum())
+    else:
+        core = arr
+        z_range = None
+        n_tissue = arr.shape[0] if arr.ndim == 3 else None
+
+    # ---- 2. subsample the tissue voxels for the statistics ----
+    step = max(1, core.size // max_samples)
+    flat = np.asarray(core.reshape(-1)[::step], dtype=np.float64)
 
     med = np.median(flat)
     mad = np.median(np.abs(flat - med))
     v_low = med + low_sigma * 1.4826 * mad
 
-    try:
-        coarse = threshold_otsu(flat)                       # coarse foreground/background split
-    except Exception:
-        coarse = v_low
-    fg = flat[flat > coarse]
-    if fg.size < 100:                                       # fallback if the split leaves ~nothing
-        fg = flat[flat > v_low]
+    # ---- 3. ceiling from real signal: high percentile of above-background voxels ----
+    fg = flat[flat > v_low]
+    if fg.size < 100:                                       # too little above the floor -> relax
+        fg = flat[flat > med]
     v_high = float(np.percentile(fg, high_percentile)) if fg.size else v_low + 1.0
 
     if v_high <= v_low:
         v_high = v_low + 1.0
-    return float(v_low), float(v_high)
+
+    v_low, v_high = float(v_low), float(v_high)
+    if return_debug:
+        debug = {
+            "tissue_z_range": z_range,
+            "n_tissue_planes": n_tissue,
+            "n_planes": arr.shape[0] if arr.ndim == 3 else None,
+            "median": float(med),
+            "mad": float(mad),
+            "v_low": v_low,
+            "v_high": v_high,
+        }
+        return v_low, v_high, debug
+    return v_low, v_high
 
 def adapted_sauvola_threshold(image, window_size=15, k=0.2, r=None):
     """

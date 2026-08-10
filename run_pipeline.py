@@ -69,6 +69,7 @@ COMMON = {
 
     # ---- preprocessing ----
     "rolling_ball_radius": 10,
+    "rolling_ball_downsample": 4,        # 1 = full res (slow); f>1 estimates bg on a 1/f plane (~f^2 faster)
     "rl_iterations":   7,
     "rl_method":       "gpu",            # RedLionfish falls back to CPU if no GPU
 
@@ -211,8 +212,11 @@ def stage_preprocess(cfg: dict, summary: dict) -> None:
     cnx = cnx[:, cy:, cx:]                         # remove black border
     _log(f"  raw cropped to {cnx.shape}")
 
-    _log(f"  rolling-ball background subtraction (radius={cfg['rolling_ball_radius']})")
-    bg_removed = remove_background_rolling_ball_3d(cnx, radius=cfg["rolling_ball_radius"], n_jobs=-1)
+    _log(f"  rolling-ball background subtraction (radius={cfg['rolling_ball_radius']}, "
+         f"downsample={cfg['rolling_ball_downsample']})")
+    bg_removed = remove_background_rolling_ball_3d(
+        cnx, radius=cfg["rolling_ball_radius"], n_jobs=-1,
+        downsample=cfg["rolling_ball_downsample"])
     del cnx; gc.collect()
 
     _out(cfg, "bg_removed").parent.mkdir(parents=True, exist_ok=True)

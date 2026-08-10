@@ -1,6 +1,7 @@
 # functions for PSF centering and deconvolution application
 import numpy as np
 from skimage.restoration import rolling_ball
+from skimage.transform import rescale, resize
 from joblib import Parallel, delayed
 import numpy as np
 
@@ -109,7 +110,7 @@ def add_zero_padding(psf: np.array, target_z: tuple) -> np.array:
 
 
 
-def remove_background_rolling_ball_3d(stack, radius=30, n_jobs=-1):
+def remove_background_rolling_ball_3d(stack, radius=30, n_jobs=-1, downsample=1):
     """
     Apply rolling-ball background subtraction to every z-plane independently,
     in parallel across CPU cores.
@@ -119,14 +120,37 @@ def remove_background_rolling_ball_3d(stack, radius=30, n_jobs=-1):
     stack   : 3D array (z, y, x)
     radius  : rolling ball radius, in pixels
     n_jobs  : number of parallel workers (-1 = use all available cores)
+    downsample : int >= 1. Speed-up factor. ``skimage.restoration.rolling_ball``
+                 cost scales with the number of pixels, so on full-resolution
+                 planes (millions of pixels) it is very slow. The background is
+                 smooth, so with downsample=f > 1 each plane is shrunk by f,
+                 the ball (radius/f) is rolled on the small image, and the
+                 background is resized back up before subtraction — typically
+                 f^2 faster (e.g. f=4 -> ~16x) with a negligible change to the
+                 smooth background estimate. downsample=1 keeps the exact
+                 full-resolution behaviour.
 
     Returns
     -------
     corrected : 3D array, same shape as stack, background-subtracted
     """
-    def process_plane(plane):
-        background = rolling_ball(plane, radius=radius)
-        return plane - background
+    downsample = int(downsample)
+
+    if downsample <= 1:
+        def process_plane(plane):
+            background = rolling_ball(plane, radius=radius)
+            return plane - background
+    else:
+        def process_plane(plane):
+            # estimate the (smooth) background on a shrunk plane, then upsample it
+            small = rescale(plane, 1.0 / downsample, order=1,
+                            preserve_range=True, anti_aliasing=True)
+            background_small = rolling_ball(small, radius=radius / downsample)
+            background = resize(background_small, plane.shape, order=1,
+                                preserve_range=True)
+            corrected = plane.astype(np.float32) - background.astype(np.float32)
+            np.clip(corrected, 0, None, out=corrected)          # resize can nudge bg > signal
+            return corrected.astype(plane.dtype, copy=False)
 
     results = Parallel(n_jobs=n_jobs)(
         delayed(process_plane)(stack[z]) for z in range(stack.shape[0])

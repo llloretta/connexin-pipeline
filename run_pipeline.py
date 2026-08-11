@@ -276,6 +276,8 @@ def stage_segment(cfg: dict, summary: dict) -> None:
     _log("segment: loading deconvolved image")
     deconv = _crop_seg(io.imread(_out(cfg, "deconvolved")), cfg)
     _log(f"  cropped segmentation frame {deconv.shape}")
+    summary["shape"] = tuple(int(s) for s in deconv.shape)
+    summary["img_max"] = float(deconv.max())
 
     if cfg.get("v_low") is not None and cfg.get("v_high") is not None:
         v_low, v_high = float(cfg["v_low"]), float(cfg["v_high"])
@@ -286,6 +288,7 @@ def stage_segment(cfg: dict, summary: dict) -> None:
             return_debug=True)
         _log(f"  median={dbg['median']:.1f}, above-background fraction={dbg['frac_above_bg']:.3f}")
         _log(f"  normalization bounds: v_low={v_low:.1f}, v_high={v_high:.1f}")
+    summary["v_low"], summary["v_high"] = float(v_low), float(v_high)
 
     _log(f"  Sauvola (window={cfg['sauvola_window']}, k={cfg['sauvola_k']}, threeD={cfg['sauvola_3d']})")
     binary = savola_3D_image(
@@ -314,6 +317,12 @@ def stage_segment(cfg: dict, summary: dict) -> None:
     del binary; gc.collect()
     _log(f"  3D connected regions (candidate plaques): {n_components}")
     summary["n_plaques_3d"] = int(n_components)
+
+    # single-voxel plaques = size-1 labelled regions (threshold noise); derived from the same labelling
+    sizes = np.bincount(labeled_3d.ravel())[1:]          # drop background label 0
+    summary["n_single_voxel"] = int((sizes == 1).sum())
+    _log(f"  single-voxel plaques: {summary['n_single_voxel']} of {int(n_components)} "
+         f"({summary['n_single_voxel'] / max(int(n_components), 1):.1%})")
 
     # save labels as int32 (NOT img_as_ubyte, which would corrupt >255 labels)
     io.imsave(_out(cfg, "label_mask"), labeled_3d.astype(np.int32))
@@ -404,17 +413,27 @@ def stage_assign(cfg: dict, summary: dict) -> None:
     df_regions = pd.read_csv(_out(cfg, "region_props"))
     summary.setdefault("n_plaques_3d", int(len(df_regions)))
 
+    # the reported nuclei count comes from the ORIGINAL nuclei image (before any crop)
+    nuclei_path = _p(cfg["nuclei_mask"]) if cfg.get("nuclei_mask") else None
+    mask_full = None
+    if nuclei_path is not None and nuclei_path.exists():
+        mask_full = io.imread(nuclei_path)
+        summary["n_nuclei"] = int(len(get_nuclei_centerpoints(mask_full)))
+        _log(f"  nuclei (original image, before crop): {summary['n_nuclei']}")
+
+    # centers used for the actual matching must be in the connexin frame (cropped)
     centers_csv = _p(cfg["nuclei_centers_csv"]) if cfg["nuclei_centers_csv"] else None
     if centers_csv is not None and centers_csv.exists():
-        _log(f"  loading nuclei centers from {cfg['nuclei_centers_csv']}")
+        _log(f"  loading nuclei centers for matching from {cfg['nuclei_centers_csv']}")
         df_centers = pd.read_csv(centers_csv)
     else:
-        _log("  computing nuclei centers from the labelled nuclei mask")
-        mask = _apply_crop(io.imread(_p(cfg["nuclei_mask"])), *cfg["nuclei_crop"])
-        df_centers = get_nuclei_centerpoints(mask)
-        del mask; gc.collect()
-    summary["n_nuclei"] = int(len(df_centers))
-    _log(f"  nuclei: {summary['n_nuclei']}")
+        _log("  computing nuclei centers from the cropped nuclei mask")
+        if mask_full is None:
+            mask_full = io.imread(_p(cfg["nuclei_mask"]))
+        df_centers = get_nuclei_centerpoints(_apply_crop(mask_full, *cfg["nuclei_crop"]))
+    if mask_full is not None:
+        del mask_full; gc.collect()
+    summary.setdefault("n_nuclei", int(len(df_centers)))   # fallback if the original mask was absent
 
     _log("  building nuclei neighbour graph (Delaunay)")
     edges, nuclei_coords_um = build_nuclei_edges(
@@ -456,6 +475,15 @@ def _report_summary(cfg: dict, summary: dict) -> None:
         f"Number of nuclei           : {summary.get('n_nuclei', 'n/a')}",
         f"Number of 3D candidate plaques : {summary.get('n_plaques_3d', 'n/a')}",
     ]
+    if "n_single_voxel" in summary and summary.get("n_plaques_3d"):
+        n1, nt = summary["n_single_voxel"], summary["n_plaques_3d"]
+        lines.append(f"Single-voxel plaques       : {n1} of {nt} plaques ({n1 / max(nt, 1):.1%})")
+    if "v_low" in summary:
+        lines.append(f"v_low / v_high             : {summary['v_low']:.1f} / {summary['v_high']:.1f}")
+    if "img_max" in summary:
+        lines.append(f"Max (preprocessed image)   : {summary['img_max']:.2f}")
+    if "shape" in summary:
+        lines.append(f"Shape                      : {summary['shape']}")
     if "n_edges" in summary:
         lines.append(f"Candidate cell-cell edges  : {summary['n_edges']}")
     if "n_assigned" in summary:

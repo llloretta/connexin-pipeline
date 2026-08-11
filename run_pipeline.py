@@ -150,24 +150,24 @@ SAMPLES = {
         "nuclei_mask":        "data/raw/sample_2/sample_01_labels_all.tif", # TODO: exact filename
         "nuclei_centers_csv": None,                  # computed from the labelled nuclei mask
         "border_crop_yx":     (0, 0),                # TODO: raw connexin border crop, if any
-        "seg_z_crop":         None,                  # TODO: (z0, z1) to match the nuclei frame
+        "seg_z_crop":         (70,470),                  # TODO: (z0, z1) to match the nuclei frame
         "seg_y_crop":         None,                  # TODO: (y0, y1)
         "seg_x_crop":         None,                  # TODO: (x0, x1)
-        "nuclei_crop":        (None, None, None),    # TODO: crop the nuclei mask into the same frame
+        "nuclei_crop":        ((70,470), None, None),    # TODO: crop the nuclei mask into the same frame
     },
 
     # ---- new acquisition #3 (raw connexin + labelled nuclei in data/raw/sample_3) ----
-    # "sample_3": {
-    #     "out_dir":            "data/raw/sample_3",
-    #     "raw_image":          "data/raw/sample_3/cnx43_1st_1X_pos2_cropped.tif",   # TODO: exact filename
-    #     "nuclei_mask":        "data/raw/sample_3/sample_02_labels_all.tif", # TODO: exact filename
-    #     "nuclei_centers_csv": None,
-    #     "border_crop_yx":     (0, 0),                # TODO
-    #     "seg_z_crop":         None,                  # TODO
-    #     "seg_y_crop":         None,                  # TODO
-    #     "seg_x_crop":         None,                  # TODO
-    #     "nuclei_crop":        (None, None, None),    # TODO
-    # },
+    "sample_3": {
+        "out_dir":            "data/raw/sample_3",
+        "raw_image":          "data/raw/sample_3/cnx43_1st_1X_pos2_cropped.tif",   # TODO: exact filename
+        "nuclei_mask":        "data/raw/sample_3/sample_02_labels_all.tif", # TODO: exact filename
+        "nuclei_centers_csv": None,
+        "border_crop_yx":     (0, 0),                # TODO
+        "seg_z_crop":         (70,470),                  # TODO
+        "seg_y_crop":         None,                  # TODO
+        "seg_x_crop":         None,                  # TODO
+        "nuclei_crop":        ((70,470), None, None),    # TODO
+    },
 }
 
 

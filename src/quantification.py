@@ -44,6 +44,32 @@ def count_connexin_plaques(binary):
     return num_regions, labeled_array
 
 
+def count_single_voxel_plaques(binary, connectivity=1):
+    """Count size-1 connected components (isolated single voxels/pixels) in a binary mask.
+
+    A single-voxel plaque is a labelled region of exactly one voxel — an isolated foreground
+    voxel with no connected neighbour, i.e. the kind of speck threshold noise produces. Useful
+    to compare how noisy different segmentations are. Works on a 2D plane or a 3D (z, y, x) stack.
+
+    Parameters
+    ----------
+    binary       : 2D or 3D array (foreground = nonzero)
+    connectivity : int passed to skimage.measure.label (1 = face-adjacent, matching the 3D
+                   labelling in localization; use higher to allow diagonal neighbours).
+
+    Returns
+    -------
+    (n_single, n_total) : number of single-voxel plaques and the total number of plaques.
+    """
+    labeled = measure.label(np.asarray(binary) > 0, connectivity=connectivity)
+    if labeled.max() == 0:
+        return 0, 0
+    sizes = np.bincount(labeled.ravel())[1:]   # drop background (label 0)
+    n_single = int((sizes == 1).sum())
+    n_total = int(sizes.size)
+    return n_single, n_total
+
+
 def remove_regions_above_area(binary, max_area_um2=2.5, pixel_size_um=0.325):
     """Remove segmented regions whose 2D cross-section area exceeds ``max_area_um2`` (µm²).
 

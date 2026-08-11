@@ -81,7 +81,6 @@ COMMON = {
     "sauvola_3d":      True,             # True -> 3D blockwise; False -> 2D per-plane
     "norm_low_sigma":  3.0,              # v_low  = median + low_sigma * 1.4826 * MAD
     "norm_high_pct":   99.5,             # v_high = high_pct percentile of the above-background signal
-    "tissue_plane_frac": 0.1,            # drop planes with mean < min + frac*(max-min) before estimating
 
     # ---- optional noise filters on the binary before labelling (default: off, as in the notebook) ----
     "min_plaque_voxels": None,           # e.g. 3 -> remove_small_objects(min_size=3)
@@ -128,7 +127,7 @@ OUTPUTS = {
 #
 # Optional per-sample overrides (add to a sample dict only if needed):
 #   "v_low"/"v_high"   : fixed normalization bounds; if both set, auto-estimation is skipped.
-#   "norm_high_pct", "norm_low_sigma", "tissue_plane_frac" : override the estimator for one sample.
+#   "norm_high_pct", "norm_low_sigma" : override the estimator for one sample.
 # --------------------------------------------------------------------------- #
 SAMPLES = {
     # ---- original acquisition: reproduces the notebook paths exactly ----
@@ -284,9 +283,8 @@ def stage_segment(cfg: dict, summary: dict) -> None:
     else:
         v_low, v_high, dbg = estimate_normalization_bounds(
             deconv, low_sigma=cfg["norm_low_sigma"], high_percentile=cfg["norm_high_pct"],
-            tissue_plane_frac=cfg["tissue_plane_frac"], return_debug=True)
-        _log(f"  tissue planes: {dbg['n_tissue_planes']}/{dbg['n_planes']} "
-             f"(z {dbg['tissue_z_range']}), median={dbg['median']:.1f}")
+            return_debug=True)
+        _log(f"  median={dbg['median']:.1f}, above-background fraction={dbg['frac_above_bg']:.3f}")
         _log(f"  normalization bounds: v_low={v_low:.1f}, v_high={v_high:.1f}")
 
     _log(f"  Sauvola (window={cfg['sauvola_window']}, k={cfg['sauvola_k']}, threeD={cfg['sauvola_3d']})")

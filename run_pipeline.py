@@ -80,7 +80,7 @@ COMMON = {
     "sauvola_r":       0.5,
     "sauvola_3d":      True,             # True -> 3D blockwise; False -> 2D per-plane
     "norm_low_sigma":  3.0,              # v_low  = median + low_sigma * 1.4826 * MAD
-    "norm_high_pct":   99.5,             # v_high = high_pct percentile of the above-background signal
+    "norm_high_pct":   99.99,             # v_high = high_pct percentile of the above-background signal
 
     # ---- optional noise filters on the binary before labelling (default: off, as in the notebook) ----
     "min_plaque_voxels": None,           # e.g. 3 -> remove_small_objects(min_size=3)
@@ -97,7 +97,7 @@ COMMON = {
     # ---- QC figure ----
     "figure_plane":     160,             # z-plane (in the FULL deconvolved/raw frame) for the
                                          # RAW / preprocessed / segmented comparison figure
-    "figure_vmax_pct":  99.5,            # robust display vmax percentile for the grayscale panels
+    "figure_vmax_pct":  99.99,            # robust display vmax percentile for the grayscale panels
 }
 
 # Output layout, written *relative to each sample's out_dir* so everything for a
@@ -135,12 +135,14 @@ SAMPLES = {
         "out_dir":            "data/sample_1",
         "raw_image":          "data/raw/corrected_images/cnx43.tif",
         "nuclei_mask":        "data/raw/nuclei_dataset/nuclei_1_raw_Object Identities_test-exported_data_Input.tiff",
-        "nuclei_centers_csv": "data/raw/nuclei_dataset/corrected_nuclei_center.csv",  # used if it exists; else computed
+        "nuclei_centers_csv": None, #"data/raw/nuclei_dataset/corrected_nuclei_center.csv",  # used if it exists; else computed
         "border_crop_yx":     (15, 3),              # cnx[:, 15:, 3:]
         "seg_z_crop":         (60, 501),            # deconvolved[60:501, :, 23:999]
         "seg_y_crop":         None,
         "seg_x_crop":         (23, 999),
         "nuclei_crop":        (None, (15, None), None),   # nuclei_mask[:, 15:, :]
+        "figure_plane":       145,             # z-plane (in the FULL deconvolved/raw frame) for the
+                                         # RAW / preprocessed / segmented comparison figure
     },
 
     # ---- new acquisition #2 (raw connexin + labelled nuclei in data/raw/sample_2) ----
@@ -154,6 +156,7 @@ SAMPLES = {
         "seg_y_crop":         None,                  # TODO: (y0, y1)
         "seg_x_crop":         None,                  # TODO: (x0, x1)
         "nuclei_crop":        ((70,470), None, None),    # TODO: crop the nuclei mask into the same frame
+        "figure_plane":       90, 
     },
 
     # ---- new acquisition #3 (raw connexin + labelled nuclei in data/raw/sample_3) ----
@@ -167,6 +170,7 @@ SAMPLES = {
         "seg_y_crop":         None,                  # TODO
         "seg_x_crop":         None,                  # TODO
         "nuclei_crop":        ((70,470), None, None),    # TODO
+        "figure_plane":       90, 
     },
 }
 

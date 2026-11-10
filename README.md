@@ -1,5 +1,8 @@
 # Connexin-43 pipeline
 
+<img width="1593" height="927" alt="with_size_3D_sideview_plane_160_nuclei_segmented_regions_21_15_overlay" src="https://github.com/user-attachments/assets/914cb5f5-6b0c-4494-9265-801fdbf81087" />
+
+
 Quantifies connexin-43 (Cx43) gap-junction plaques in 3D cardiac microscopy stacks and assigns each
 plaque to the nucleus–nucleus junction (intercalated disc) it sits closest to.
 

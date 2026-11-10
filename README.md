@@ -1,6 +1,6 @@
 # Connexin-43 Segmentation and Nuclei Association pipeline
 
-Example image of 3D segmented Nuclei (dark green) and Connexin (light green) across 10 planes:
+Example image of segmented Nuclei (dark green) and Connexin (light green) in 3D EHT across 10 planes:
 <img width="1593" height="927" alt="with_size_3D_sideview_plane_160_nuclei_segmented_regions_21_15_overlay" src="https://github.com/user-attachments/assets/914cb5f5-6b0c-4494-9265-801fdbf81087" />
 
 
